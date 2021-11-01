@@ -52,6 +52,7 @@ pub async fn route_hook(mut req: Request<Body>) -> HttpResult {
 }
 
 fn get_hmac_value(headers: &HeaderMap<HeaderValue>) -> Result<Vec<u8>, ValidationError> {
+    const GH_PREFIX: &str = "sha256=";
     let header = match headers.get("x-hub-signature-256") {
         Some(h) => match h.to_str() {
             Ok(s) => s,
@@ -59,10 +60,13 @@ fn get_hmac_value(headers: &HeaderMap<HeaderValue>) -> Result<Vec<u8>, Validatio
         },
         None => return Err(ValidationError::HeaderMissing)
     };
-    if header.len() % 2 != 0 {
+    if !header.starts_with(GH_PREFIX) {
         return Err(ValidationError::HeaderMalformed)
     }
-    (0..header.len())
+    if (header.len()-GH_PREFIX.len()) % 2 != 0 {
+        return Err(ValidationError::HeaderMalformed)
+    }
+    (GH_PREFIX.len()..header.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&header[i..i+2], 16).map_err(|_| ValidationError::HeaderMalformed))
         .collect()
@@ -82,5 +86,5 @@ fn calc_hmac(secret: &str, body: &[u8]) -> Output<HmacSha256> {
 }
 
 fn resp(code: StatusCode) -> HttpResult {
-    Ok(Response::builder().status(code).body(Body::empty()).unwrap())
+    Ok(Response::builder().status(code).body("yeah sure".into()).unwrap())
 }

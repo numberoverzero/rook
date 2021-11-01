@@ -1,7 +1,8 @@
+mod config;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use log::{error, Record, Level, Metadata, LevelFilter};
+use log::{info, error, Record, Level, Metadata, LevelFilter};
 use hyper::Server;
 use hyper::service::{make_service_fn, service_fn};
 
@@ -11,7 +12,11 @@ static LOGGER: SimpleLogger = SimpleLogger;
 #[tokio::main]
 async fn main() {
     init_logging();
-    let addr = SocketAddr::from(([0, 0, 0, 0], 9000));
+    let cfg = config::parse_sample();
+    info!("config: {:?}", cfg);
+    let port = 9000;
+    info!("listening on port {}", port);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let make_svc = make_service_fn(|_conn| async {
         Ok::<_, Infallible>(service_fn(rook::route_hook))
     });

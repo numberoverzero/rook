@@ -1,0 +1,8 @@
+port = 9000
+
+[hooks.webhook-test]
+type = "github"
+url_path = "/hooks/gh"
+repo = "numberoverzero/webhook-test"
+secret_path = "/home/crossj/webhook-test-secret.txt"
+script_path = "/home/crossj/webhook-test-script.sh"

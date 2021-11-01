@@ -12,7 +12,7 @@ pub struct RookConfig {
 #[serde(tag = "type")]
 enum Hook {
     #[serde(rename="github")]
-    GithubHook {repo: String, secret_path: String, script_path: String},
+    GithubHook {url_path: String, repo: String, secret_path: String, script_path: String},
 }
 
 const SAMPLE_CONFIG: &str = r#"
@@ -20,6 +20,7 @@ const SAMPLE_CONFIG: &str = r#"
 
     [hooks.myhook]
     type = "github"
+    url_path = "/hooks/gh"
     repo = "numberoverzero/webhook-test"
     secret_path = "/home/crossj/webhook-test-secret.txt"
     script_path = "/home/crossj/webhook-test-script.sh"

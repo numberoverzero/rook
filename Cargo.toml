@@ -5,10 +5,14 @@ edition = "2021"
 description = "tiny rust github webhook"
 
 [dependencies]
+futures = { version = "0.3" }
+hmac = { version = "0.11" }
+hyper = { version = "0.14", features = ["http1", "server", "tcp", "stream"] }
 log = { version = "0.4" }
-hmac = { version = "0.11.0" }
-sha2 = { version = "0.9.8" }
-hyper = { version = "0.14", features = ["http1", "server", "tcp"] }
-tokio = { version = "1.13.0", features = ["macros", "rt-multi-thread", "signal"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+sha2 = { version = "0.9" }
+shlex = { version = "1.1" }
+time = { version = "0.3", features = ["formatting", "macros"] }
+tokio = { version = "1.13", features = ["macros", "rt-multi-thread", "signal"] }
 toml = { version = "0.5" }
-serde = { version = "1.0.130", features = ["derive"] }

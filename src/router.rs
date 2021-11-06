@@ -1,4 +1,5 @@
 use crate::config::{GithubHook, RookHook, RouteConfig};
+use fork::Fork;
 use futures::stream::TryStreamExt;
 use hmac::{Hmac, Mac, NewMac};
 use hyper::{
@@ -11,7 +12,7 @@ use sha2::Sha256;
 use shlex;
 use std::{
     convert::Infallible,
-    process::{Command, Stdio},
+    process::{self, Command, Stdio},
     str::{self, FromStr},
 };
 
@@ -26,7 +27,6 @@ pub async fn handle(req: Request<Body>, cfg: &RouteConfig) -> Result<Response<Bo
 
 async fn route(req: Request<Body>, cfg: &RouteConfig) -> Result<Response<Body>, Response<Body>> {
     const OK_EMPTY: HttpResponse = HttpResponse::Ok("");
-    const BAD_ROUTE: HttpResponse = HttpResponse::BadRequest("bad route");
 
     let (parts, body) = req.into_parts();
     let path = parts.uri.path().to_string();
@@ -34,7 +34,6 @@ async fn route(req: Request<Body>, cfg: &RouteConfig) -> Result<Response<Body>, 
 
     guard_content_length(headers)?;
     let body = &parse_body(body).await?;
-
     let resp = if let Some(hooks) = cfg.gh_hooks.get(&path) {
         exec_gh_hooks(hooks, headers, body).await
     } else if let Some(hooks) = cfg.rook_hooks.get(&path) {
@@ -88,22 +87,46 @@ async fn exec_gh_hooks(
     body: &Vec<u8>,
 ) -> Result<(), HttpResponse> {
     const GH_DIGEST_HEADER: &'static str = "x-hub-signature-256";
+    struct State {
+        m: usize, // matching hooks
+        v: usize, // verified hmac
+        s: usize, // started cmd
+    }
 
     let payload: GithubPayload = serde_json::from_slice(body).map_err(|_| BODY_MALFORMED)?;
     let hmac_claim = extract_hmac(headers, GH_DIGEST_HEADER, DIGEST_PREFIX)?;
+    let mut state = State { m: 0, v: 0, s: 0 };
     for hook in hooks.iter().filter(|h| h.repo == payload.repo.full_name) {
-        check_hmac(&hook.secret, body, &hmac_claim)?;
-        Command::new(&hook.command)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .arg(&payload.repo.full_name)
-            .arg(&payload.commit)
-            .arg(&payload.reference)
-            .spawn()
-            .map_err(|_| SERVER_ERR)?;
+        state.m += 1;
+        if check_hmac(&hook.secret, body, &hmac_claim).is_err() {
+            continue;
+        }
+        state.v += 1;
+        if run_forked(|| {
+            Command::new(&hook.command)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                // https://security.stackexchange.com/a/14009
+                .env("GITHUB_REPO", &payload.repo.full_name)
+                .env("GITHUB_COMMIT", &payload.commit)
+                .env("GITHUB_REF", &payload.reference)
+                .spawn()
+                .unwrap();
+        }) {
+            state.s += 1;
+        }
     }
-    Ok(())
+    match state {
+        // no hooks listening for this event's repo
+        State { m: 0, v: _v, s: _s } => Err(BAD_ROUTE),
+        // some listening but every signature check failed
+        State { m: _m, v: 0, s: _s } => Err(SIGNATURE_MISMATCH),
+        // some signature checkes passed but we failed to start any processes
+        State { m: _m, v: _v, s: 0 } => Err(SERVER_ERR),
+        // some succeeded
+        _ => Ok(()),
+    }
 }
 
 async fn exec_rook_hooks(
@@ -112,21 +135,40 @@ async fn exec_rook_hooks(
     body: &Vec<u8>,
 ) -> Result<(), HttpResponse> {
     const ROOK_DIGEST_HEADER: &'static str = "x-rook-signature-256";
+    struct State {
+        v: usize, // verified hmac
+        s: usize, // started cmd
+    }
 
     let args = shlex::split(str::from_utf8(body).map_err(|_| BODY_MALFORMED)?.trim())
         .ok_or_else(|| BODY_MALFORMED)?;
     let hmac_claim = extract_hmac(headers, ROOK_DIGEST_HEADER, DIGEST_PREFIX)?;
+    let mut state = State { v: 0, s: 0 };
     for hook in hooks {
-        check_hmac(&hook.secret, body, &hmac_claim)?;
-        Command::new(&hook.command)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .args(&args)
-            .spawn()
-            .map_err(|_| SERVER_ERR)?;
+        if check_hmac(&hook.secret, body, &hmac_claim).is_err() {
+            continue;
+        }
+        state.v += 1;
+        if run_forked(|| {
+            Command::new(&hook.command)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .args(&args)
+                .spawn()
+                .unwrap();
+        }) {
+            state.s += 1;
+        }
     }
-    Ok(())
+    match state {
+        // every signature check failed
+        State { v: 0, s: _s } => Err(SIGNATURE_MISMATCH),
+        // some signature checkes passed but we failed to start any processes
+        State { v: _v, s: 0 } => Err(SERVER_ERR),
+        // some succeeded
+        _ => Ok(()),
+    }
 }
 
 fn extract_hmac(
@@ -148,8 +190,6 @@ fn extract_hmac(
 }
 
 fn check_hmac(secret: &Vec<u8>, body: &[u8], signature: &Vec<u8>) -> Result<(), HttpResponse> {
-    const SIGNATURE_MISMATCH: HttpResponse = HttpResponse::BadRequest("signature mismatch");
-
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("error initializing hmac");
     mac.update(body);
     match mac.verify(signature) {
@@ -158,8 +198,35 @@ fn check_hmac(secret: &Vec<u8>, body: &[u8], signature: &Vec<u8>) -> Result<(), 
     }
 }
 
+/// no error handling, no logging, just one shot to run in a forked process
+/// process::Command::spawn doesn't work in a tokio event loop, the spawned process
+/// still needs to be detached with setsid.
+fn run_forked<F, R>(f: F) -> bool
+where
+    F: Fn() -> R,
+{
+    match fork::fork() {
+        Ok(Fork::Parent(_)) => {
+            // we're in the parent process, must have forked successfully
+            return true;
+        }
+        Ok(Fork::Child) => {
+            // we're in the child process
+            fork::setsid().unwrap(); // YOLO: just panic
+            f();
+            process::exit(0);
+        }
+        Err(_) => {
+            // failed to fork
+            return false;
+        }
+    }
+}
+
 const DIGEST_PREFIX: &'static str = "sha256=";
 const SERVER_ERR: HttpResponse = HttpResponse::ServerError;
+const BAD_ROUTE: HttpResponse = HttpResponse::BadRequest("bad route");
+const SIGNATURE_MISMATCH: HttpResponse = HttpResponse::BadRequest("signature mismatch");
 const HEADER_MALFORMED: HttpResponse = HttpResponse::BadRequest("malformed header");
 const BODY_MALFORMED: HttpResponse = HttpResponse::BadRequest("malformed body");
 

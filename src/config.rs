@@ -37,7 +37,7 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
         gh_hooks: HashMap::new(),
         rook_hooks: HashMap::new(),
     };
-    for hook in cfg.hooks.values() {
+    for hook in cfg.hooks {
         match hook {
             _HookConfig::_GithubHook {
                 url,
@@ -45,7 +45,7 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
                 command,
                 repo,
             } => {
-                if routes.rook_hooks.contains_key(url) {
+                if routes.rook_hooks.contains_key(&url) {
                     return Err(format!("hook path type conflict: '{}'", url).into());
                 }
                 routes
@@ -63,7 +63,7 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
                 secret,
                 command,
             } => {
-                if routes.gh_hooks.contains_key(url) {
+                if routes.gh_hooks.contains_key(&url) {
                     return Err(format!("hook path type conflict: '{}'", url).into());
                 }
                 routes
@@ -119,8 +119,8 @@ impl Display for ConfigError {
 
 #[derive(Deserialize)]
 struct _RookConfig {
-    pub port: u16,
-    pub hooks: HashMap<String, _HookConfig>,
+    port: u16,
+    hooks: Vec<_HookConfig>,
 }
 
 #[derive(Deserialize)]

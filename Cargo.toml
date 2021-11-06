@@ -2,9 +2,10 @@
 name = "rook"
 version = "0.1.0"
 edition = "2021"
-description = "tiny rust github webhook"
+description = "tiny rust github webhook server"
 
 [dependencies]
+fork = { version = "0.1" }
 futures = { version = "0.3" }
 hmac = { version = "0.11" }
 hyper = { version = "0.14", features = ["http1", "server", "tcp", "stream"] }

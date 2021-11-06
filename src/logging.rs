@@ -1,7 +1,7 @@
 use hyper::{Body, Method, Request, Response, StatusCode, Version};
 pub use log::info;
 use log::{Level, LevelFilter, Metadata, Record};
-use std::{convert::Infallible, net::SocketAddr, process::exit};
+use std::{convert::Infallible, net::SocketAddr, process};
 use time::{format_description::FormatItem, macros::format_description, OffsetDateTime};
 
 // time crate does not support strftime
@@ -29,7 +29,7 @@ pub fn init_logging() {
         .map(|_| log::set_max_level(LevelFilter::Info))
         .unwrap_or_else(|_| {
             eprintln!("failed to init logging");
-            exit(1)
+            process::exit(1);
         })
 }
 

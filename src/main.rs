@@ -6,16 +6,22 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Server,
 };
-use std::{convert::Infallible, net::SocketAddr, process::exit, sync::Arc};
+use std::{convert::Infallible, env, net::SocketAddr, process, sync::Arc};
 
 #[tokio::main]
 async fn main() {
-    logging::init_logging();
-    let cfg = match config::from_file("./sample_config.toml") {
+    let cfg_path = env::args().nth(1).unwrap_or_else(|| {
+        eprintln!(
+            "usage: {} your_config_file.toml",
+            env::args().nth(0).unwrap()
+        );
+        process::exit(1);
+    });
+    let cfg = match config::from_file(&cfg_path) {
         Ok(c) => Arc::new(c),
         Err(e) => {
             eprintln!("{}", e);
-            exit(1);
+            process::exit(1);
         }
     };
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
@@ -37,9 +43,15 @@ async fn main() {
         }
     });
     let server = Server::bind(&addr).serve(make_svc);
+    logging::init_logging();
     logging::info!("listening on port {}", addr.port());
-    if let Err(e) = server.await {
-        eprintln!("server error: {}", e);
-        exit(1);
+    match server.await {
+        Ok(_) => {
+            println!("shutting down");
+        }
+        Err(e) => {
+            eprintln!("server error: {}", e);
+            process::exit(1);
+        }
     }
 }

@@ -132,6 +132,7 @@ enum _HookConfig {
         #[serde(rename = "secret_file")]
         #[serde(deserialize_with = "deserialize_secret")]
         secret: Vec<u8>,
+        #[serde(rename = "command_path")]
         command: String,
         repo: String,
     },
@@ -141,6 +142,7 @@ enum _HookConfig {
         #[serde(rename = "secret_file")]
         #[serde(deserialize_with = "deserialize_secret")]
         secret: Vec<u8>,
+        #[serde(rename = "command_path")]
         command: String,
     },
 }

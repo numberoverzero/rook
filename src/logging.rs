@@ -100,7 +100,8 @@ impl LoggingCtx {
     /// with an extra field for timing information.
     pub fn clf_with_timing(&self) -> String {
         self.internal_clf_with_timing()
-            .expect("error formatting log line")
+            .map_err(|e| panic!("error formatting log line: {}", e))
+            .unwrap()
     }
 }
 

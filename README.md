@@ -2,10 +2,13 @@
 
 * ~5MB binary
 * ~500µs response times (8kb payload)
-* verifies `x-hub-signature-256` header from github hooks
+* verifies `x-hub-signature-256` header from github
 * toml configuration to run multiple hooks per route and per repository
+* multi-threaded server ([tokio](https://docs.rs/tokio)) with daemonized script execution ([fork](https://docs.rs/fork))
 
 Supports the github [`push` event](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#push) or an arbitrary payload `"rook"` event.  Other github event types (like [issues](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issues) or [deployments](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#deployment)) are not supported.
+
+TLS support planned.
 
 # Quick start
 
@@ -17,9 +20,9 @@ Supports the github [`push` event](https://docs.github.com/en/developers/webhook
 
 ## Configuration
 
-There are two types of hooks, `"github"` and `"rook"`.  The only event that the `"github"` hook type supports is [push](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#push).
+There are two types of hooks: `"github"` and `"rook"`.  The only event that the `"github"` hook type supports is [push](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#push).
 
-Multiple hooks can listen on the same path, but they must be the same type.  When using multiple `"github"` hooks on the same path, the event's `repository` value is used to filter for matching hooks.  When using multiple `"rook"` hooks on the same path, any whose signature is verified will be invoked.
+Multiple hooks can listen on the same path but they must be the same type.  When using multiple `"github"` hooks on the same path, the event's `repository` value is used to filter for matching hooks.  When using multiple `"rook"` hooks on the same path, any whose signature is verified will be invoked.
 
 ### Sample config
 
@@ -31,33 +34,25 @@ type = "github"
 url = "/hooks/gh"
 repo = "numberoverzero/webhook-test"
 secret_file = "/home/crossj/my_secret"
-command = "/home/crossj/my_script.sh"
+command_path = "/home/crossj/my_script.sh"
 
 [[hooks]]
 type = "github"
 url = "/hooks/gh"
 repo = "numberoverzero/bloop"
 secret_file = "/tmp/my_shared_secret"
-command = "/tmp/pull_latest.sh"
+command_path = "/tmp/pull_latest.sh"
 
 [[hooks]]
 type = "rook"
 url = "/build-hooks/blog"
 secret_file = "/home/crossj/blog/secret"
-command = "/home/crossj/blog/rebuild.sh"
+command_path = "/home/crossj/blog/rebuild.sh"
 ```
 
 ## Hook data
 
-When using a `"rook"` hook, data is passed as command line args.  There is no event type.  Unless you have modified how `proc` is mounted, these will be visible to any other user on the system.  See [security details below](#security).
-
-When using a `"github"` hook, data is passed through environment variables:
-
-```sh
-$GITHUB_REPO=""        # eg. "numberoverzero/webhook-test"
-$GITHUB_COMMIT=""      # eg. "55cdc72ed8eaca541e12279130d2b7fb5c74b38f"
-$GITHUB_REF=""         # eg. "refs/heads/main"
-```
+When using a `"rook"` hook data is passed as command line args.  Unless you have modified how `proc` is mounted, the arguments will be visible to any other user on the system.  See [security details below](#security).
 
 ### Sample `"github"` script
 
@@ -85,22 +80,45 @@ listening on port 9000
 140.82.115.117:24349 - - [06/Nov/2021:03:57:15 +0000] "POST /hooks/gh HTTP/1.1" 200 OK - 3653µs
 ```
 
+# Sending a `"rook"` hook
+
+Rook uses the same signing mechanism as github's hooks, with a slightly different header name: `x-rook-signature-256`.
+
+1. Construct a request `body`
+2. Load a shared `secret`
+3. Calculate `hmacSha256(secret, body)`
+4. Put the hex-encoded digest value prefixed with `sha256=` in a request header.  In pseudocode:
+
+```
+# some command to run
+body = b"build --release --target x86_64-pc-windows-gnu"
+secret = hex_to_bytes("d33e7cdf2126defc0e88cd3aab9fffd91681b89291f1dfc74e4c3d3a19405fd6")
+digest = bytes_to_hex(hmacSha256(secret, body).digest())
+
+url = "http://localhost:9000"
+verb = "POST"
+headers = { "x-rook-signature-256": "sha256=" + digest }
+request = new_request(verb, url, headers, body)
+```
+
 # Implementation Details
 
-Skip this whole section if you just need to run some simple scripts when a webhook is invoked.
+Unless you're auditing the code you can safely skip this section.
+
+## Readability
+
+The server is ~0.6kLOC after `cargo fmt` and can be read completely in an hour or two.  ~1/4 is generic logging and config and there is no shared mutable state to track.  The recommended reading order is `main.rs` -> `logging.rs` -> `config.rs` -> `router.rs`.
 
 ## Performance
 
-rook is designed to do one thing: map incoming POST requests with valid signatures to a local script and pass some environment variables or shell arguments.  If you're looking for more complex setups or verbose logging, there are hundreds of other feature-rich implementations to explore.
+rook is designed to do one thing: map incoming POST requests with valid signatures to a local script and pass some environment variables or arguments.  If you're looking for more complex setups or verbose logging there are hundreds of other feature-rich implementations to explore.
 
-rook has almost no debug output, and doesn't return detailed errors to callers.  It doesn't capture process output from hook scripts, or failures to run hook scripts.  For example, if you forget to set the executable bit on your hook script (`chmod +x my_hook.sh`) then rook will simply return a `500 Internal Error` with no body.
+rook has no debug output and doesn't return detailed errors to callers.  It doesn't capture process output from scripts or failures to run scripts.  For example, if you forget to set the executable bit on your script (`chmod +x my_hook.sh`) then rook will return a `500 Internal Error` with no body.
 
 ## Security
 
-rook spawns processes from wherever it is running, and for `"github"` hooks will pass context through environment variables, which is [reasonably secure](https://security.stackexchange.com/a/14009) on modern linuxes.  A `"rook"` hook will split the post body into args through [shlex](https://docs.rs/shlex/) then pass those args to the script, which is often insecure; the default `hidepid` option when mounting [`proc(5)`](https://man7.org/linux/man-pages/man5/proc.5.html) is `0`.  If you want to forward sensitve data through a `"rook"` hook, you need to protect `/proc/[pid]/cmdline` by mounting with `hidepid=1` or `hidepid=2`:
+rook spawns processes from wherever it is running.  A `"github"` hook passes context through environment variables which is [reasonably secure](https://security.stackexchange.com/a/14009) on modern linuxes.  A `"rook"` hook splits the request body into args through [shlex](https://docs.rs/shlex/) and passes those args to the script.  Unlike envvars, command args are usually insecure because the default `hidepid=0` option when mounting [`proc(5)`](https://man7.org/linux/man-pages/man5/proc.5.html) allows [other users to view them](https://unix.stackexchange.com/questions/163145/how-to-get-whole-command-line-from-a-process).  If you want to forward sensitve data through a `"rook"` hook, you need to protect `/proc/[pid]/cmdline`:
 > Users may not access files and subdirectories inside any /proc/[pid] directories but their own (the /proc/[pid] directories themselves remain visible).  Sensitive files such as /proc/[pid]/cmdline and /proc/[pid]/status are now protected against other users.
-
-
 
 ## Process spawning
 
@@ -116,23 +134,3 @@ rook spawns processes from wherever it is running, and for `"github"` hooks will
     > The intent of pthread_atfork() was to provide a mechanism whereby the application (or a library) could ensure that mutexes and other process and thread state would be restored to a consistent state. In practice, this task is generally too difficult to be practicable.
   
   Rather than try to use `pthread_atfork(3)` correctly, rook avoids the issue by not sharing mutable state across threads.  One atomic ref-counted ([Arc](https://doc.rust-lang.org/std/sync/struct.Arc.html)) struct holds the read-only route config which will not deadlock if a child process panics.
-
-## Typed paths
-
-From the config file, rook builds a map of `{url path: [array of hooks]}`.  To keep parsing fast, only one type of hook (`"github"` or `"rook"`) can be served at each path.  The following config is **invalid**:
-```toml
-port = 9000
-
-[[hooks]]
-type = "rook"               # <-- INVALID: different types, same path
-url = "/same/path"
-secret_file = "/tmp/secret"
-command = "/tmp/run.sh"
-
-[[hooks]]
-type = "github"             # <-- INVALID: different types, same path
-url = "/same/path"
-repo = "numberoverzero/bar"
-secret_file = "/tmp/secret"
-command = "/tmp/run.sh"
-```

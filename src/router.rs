@@ -122,9 +122,9 @@ async fn exec_gh_hooks(
         State { m: 0, v: _v, s: _s } => Err(BAD_ROUTE),
         // some listening but every signature check failed
         State { m: _m, v: 0, s: _s } => Err(SIGNATURE_MISMATCH),
-        // some signature checkes passed but we failed to start any processes
+        // some signature checks passed but we failed to start any processes
         State { m: _m, v: _v, s: 0 } => Err(SERVER_ERR),
-        // some succeeded
+        // some processes started
         _ => Ok(()),
     }
 }
@@ -164,9 +164,9 @@ async fn exec_rook_hooks(
     match state {
         // every signature check failed
         State { v: 0, s: _s } => Err(SIGNATURE_MISMATCH),
-        // some signature checkes passed but we failed to start any processes
+        // some signature checks passed but we failed to start any processes
         State { v: _v, s: 0 } => Err(SERVER_ERR),
-        // some succeeded
+        // some processes started
         _ => Ok(()),
     }
 }
@@ -207,7 +207,7 @@ where
 {
     match fork::fork() {
         Ok(Fork::Parent(_)) => {
-            // we're in the parent process, must have forked successfully
+            // we're in the parent process
             return true;
         }
         Ok(Fork::Child) => {

@@ -2,11 +2,7 @@ use serde::{
     de::{self, Deserializer},
     Deserialize,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    fs,
-};
+use std::{collections::HashMap, fmt::Display, fs};
 use toml;
 
 pub struct RouteConfig {
@@ -17,17 +13,8 @@ pub struct RouteConfig {
 
 pub struct GithubHook {
     pub repo: String,
-    pub events: HashSet<GithubEvent>,
     pub command: String,
     pub secret: Vec<u8>,
-}
-
-#[derive(Deserialize, Hash, Eq, PartialEq)]
-pub enum GithubEvent {
-    #[serde(rename = "deploy")]
-    Deploy,
-    #[serde(rename = "push")]
-    Push,
 }
 
 pub struct RookHook {
@@ -57,7 +44,6 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
                 secret,
                 command,
                 repo,
-                events,
             } => {
                 if routes.rook_hooks.contains_key(&url) {
                     return Err(format!("hook path type conflict: '{}'", url).into());
@@ -70,7 +56,6 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
                         repo: repo.to_string(),
                         command: command.to_string(),
                         secret: secret.to_vec(),
-                        events: HashSet::from_iter(events),
                     });
             }
             _HookConfig::_RookHook {
@@ -149,7 +134,6 @@ enum _HookConfig {
         secret: Vec<u8>,
         command: String,
         repo: String,
-        events: Vec<GithubEvent>,
     },
     #[serde(rename = "rook")]
     _RookHook {

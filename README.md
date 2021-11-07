@@ -5,6 +5,8 @@
 * verifies `x-hub-signature-256` header from github hooks
 * toml configuration to run multiple hooks per route and per repository
 
+Supports the github [`push` event](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#push) or an arbitrary payload `"rook"` event.  Other github event types (like [issues](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issues) or [deployments](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#deployment)) are not supported.
+
 # Quick start
 
 1. Create a file that contains only the shared secret
@@ -15,9 +17,9 @@
 
 ## Configuration
 
-There are two types of hooks, `"github"` and `"rook"`.  For `"github"` hooks, you can specify which event types to listen for.  Supported github event types are `"push"` and `"deploy"`.
+There are two types of hooks, `"github"` and `"rook"`.  The only event that the `"github"` hook type supports is [push](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#push).
 
-Multiple hooks can listen on the same path, but they must be the same type.  When using multiple `"github"` hooks on the same path, the event's `repository` value and `events` values are used to filter for matching hooks.  When using multiple `"rook"` hooks on the same path, any whose signature is verified will be invoked.
+Multiple hooks can listen on the same path, but they must be the same type.  When using multiple `"github"` hooks on the same path, the event's `repository` value is used to filter for matching hooks.  When using multiple `"rook"` hooks on the same path, any whose signature is verified will be invoked.
 
 ### Sample config
 
@@ -26,7 +28,6 @@ port = 9000
 
 [[hooks]]
 type = "github"
-events = ["push", "deploy"]
 url = "/hooks/gh"
 repo = "numberoverzero/webhook-test"
 secret_file = "/home/crossj/my_secret"
@@ -34,7 +35,6 @@ command = "/home/crossj/my_script.sh"
 
 [[hooks]]
 type = "github"
-events = ["push"]
 url = "/hooks/gh"
 repo = "numberoverzero/bloop"
 secret_file = "/tmp/my_shared_secret"
@@ -51,19 +51,9 @@ command = "/home/crossj/blog/rebuild.sh"
 
 When using a `"rook"` hook, data is passed as command line args.  There is no event type.  Unless you have modified how `proc` is mounted, these will be visible to any other user on the system.  See [security details below](#security).
 
-When using a `"github"` hook, data is passed through environment variables.  For a `"deploy"` event, these are:
+When using a `"github"` hook, data is passed through environment variables:
 
 ```sh
-$GITHUB_EVENT="deploy"
-$GITHUB_REPO=""        # eg. "numberoverzero/webhook-test"
-$GITHUB_COMMIT=""      # eg. "55cdc72ed8eaca541e12279130d2b7fb5c74b38f"
-$GITHUB_REF=""         # eg. "refs/heads/main"
-```
-
-For a github `"push"` event, these are:
-
-```sh
-$GITHUB_EVENT="push"
 $GITHUB_REPO=""        # eg. "numberoverzero/webhook-test"
 $GITHUB_COMMIT=""      # eg. "55cdc72ed8eaca541e12279130d2b7fb5c74b38f"
 $GITHUB_REF=""         # eg. "refs/heads/main"
@@ -73,13 +63,12 @@ $GITHUB_REF=""         # eg. "refs/heads/main"
 
 ```sh
 #!/usr/bin/env bash
-echo "  type: $GITHUB_EVENT"  >> output.log
 echo "  repo: $GITHUB_REPO"   >> output.log
 echo "commit: $GITHUB_COMMIT" >> output.log
 echo "   ref: $GITHUB_REF"    >> output.log
 ```
 
-### Sample `"hook"` script
+### Sample `"rook"` script
 
 ```sh
 #!/usr/bin/env bash
@@ -108,7 +97,7 @@ rook has almost no debug output, and doesn't return detailed errors to callers. 
 
 ## Security
 
-rook spawns processes from wherever it is running, and for `"github"` hooks will pass context through environment variables, which is [reasonably secure](https://security.stackexchange.com/a/14009) on modern linuxes.  For `"rook"` hooks, it will split the post body into args through [shlex](https://docs.rs/shlex/) and then pass those args to the script, which is often insecure, since the default `hidepid` option when mounting [`proc(5)`](https://man7.org/linux/man-pages/man5/proc.5.html) is `0`.  If you want to forward sensitve data through a `"rook"` hook, you need to protect `/proc/[pid]/cmdline` by mounting with `hidepid=1` or `hidepid=2`:
+rook spawns processes from wherever it is running, and for `"github"` hooks will pass context through environment variables, which is [reasonably secure](https://security.stackexchange.com/a/14009) on modern linuxes.  A `"rook"` hook will split the post body into args through [shlex](https://docs.rs/shlex/) then pass those args to the script, which is often insecure; the default `hidepid` option when mounting [`proc(5)`](https://man7.org/linux/man-pages/man5/proc.5.html) is `0`.  If you want to forward sensitve data through a `"rook"` hook, you need to protect `/proc/[pid]/cmdline` by mounting with `hidepid=1` or `hidepid=2`:
 > Users may not access files and subdirectories inside any /proc/[pid] directories but their own (the /proc/[pid] directories themselves remain visible).  Sensitive files such as /proc/[pid]/cmdline and /proc/[pid]/status are now protected against other users.
 
 
@@ -142,7 +131,6 @@ command = "/tmp/run.sh"
 
 [[hooks]]
 type = "github"             # <-- INVALID: different types, same path
-events = ["push"]
 url = "/same/path"
 repo = "numberoverzero/bar"
 secret_file = "/tmp/secret"

@@ -9,7 +9,6 @@ use hyper::{
 use serde::Deserialize;
 use serde_json;
 use sha2::Sha256;
-use shlex;
 use std::{
     convert::Infallible,
     process::{self, Command, Stdio},
@@ -112,7 +111,6 @@ async fn exec_gh_hooks(
                 .env("GITHUB_COMMIT", &payload.commit)
                 .env("GITHUB_REF", &payload.reference)
                 .spawn()
-                .unwrap();
         }) {
             state.s += 1;
         }
@@ -140,8 +138,7 @@ async fn exec_rook_hooks(
         s: usize, // started cmd
     }
 
-    let args = shlex::split(str::from_utf8(body).map_err(|_| BODY_MALFORMED)?.trim())
-        .ok_or_else(|| BODY_MALFORMED)?;
+    let body_string = str::from_utf8(body).map_err(|_| BODY_MALFORMED)?.trim();
     let hmac_claim = extract_hmac(headers, ROOK_DIGEST_HEADER, DIGEST_PREFIX)?;
     let mut state = State { v: 0, s: 0 };
     for hook in hooks {
@@ -154,9 +151,8 @@ async fn exec_rook_hooks(
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
-                .args(&args)
+                .env("ROOK_INPUT", body_string)
                 .spawn()
-                .unwrap();
         }) {
             state.s += 1;
         }
@@ -198,12 +194,13 @@ fn check_hmac(secret: &Vec<u8>, body: &[u8], signature: &Vec<u8>) -> Result<(), 
     }
 }
 
-/// no error handling, no logging, just one shot to run in a forked process
-/// process::Command::spawn doesn't work in a tokio event loop, the spawned process
-/// still needs to be detached with setsid.
-fn run_forked<F, R>(f: F) -> bool
+/// be **very** careful that the forked function does not panic.
+///
+/// no logging on any failure, just one shot to run in a forked process
+/// process is detached with setsid after fork
+fn run_forked<F, T>(f: F) -> bool
 where
-    F: Fn() -> R,
+    F: Fn() -> std::io::Result<T>,
 {
     match fork::fork() {
         Ok(Fork::Parent(_)) => {
@@ -212,8 +209,12 @@ where
         }
         Ok(Fork::Child) => {
             // we're in the child process
-            fork::setsid().unwrap(); // YOLO: just panic
-            f();
+            if fork::setsid().is_err() {
+                // if we can't change our session id, don't try to start.
+                process::exit(0)
+            }
+            // discard the result since we're always exiting the child thread
+            let _unused: Result<T, _> = f();
             process::exit(0);
         }
         Err(_) => {

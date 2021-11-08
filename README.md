@@ -52,12 +52,13 @@ command_path = "/home/crossj/blog/rebuild.sh"
 
 ## Hook data
 
-When using a `"rook"` hook data is passed as command line args.  Unless you have modified how `proc` is mounted, the arguments will be visible to any other user on the system.  See [security details below](#security).
+When using a `"rook"` hook the post body is passed in a single environment variable `$ROOK_INPUT`.  A `"github"` hook has three variables: `$GITHUB_REPO`, `$GITHUB_COMMIT`, `$GITHUB_REF`.  Why not args?  See [security details](#security) below.
 
 ### Sample `"github"` script
 
 ```sh
 #!/usr/bin/env bash
+echo "  time: $(date +%s)"    >> output.log
 echo "  repo: $GITHUB_REPO"   >> output.log
 echo "commit: $GITHUB_COMMIT" >> output.log
 echo "   ref: $GITHUB_REF"    >> output.log
@@ -67,7 +68,8 @@ echo "   ref: $GITHUB_REF"    >> output.log
 
 ```sh
 #!/usr/bin/env bash
-echo "received args: $@" >> output.log
+echo "time: $(date +%s)" >> output.log
+echo "body: $ROOK_INPUT" >> output.log
 ```
 
 ## Running the server
@@ -75,9 +77,9 @@ echo "received args: $@" >> output.log
 ```sh
 $ ./rook my-config.toml
 listening on port 9000
-140.82.115.81:50925 - - [06/Nov/2021:02:25:57 +0000] "POST /hooks/gh HTTP/1.1" 200 OK - 3300µs
+140.82.115.81:50925 - - [06/Nov/2021:02:25:57 +0000] "POST /hooks/gh HTTP/1.1" 200 OK - 291µs
 140.82.115.117:28685 - - [06/Nov/2021:03:45:42 +0000] "POST /hooks/gh HTTP/1.1" 400 Bad Request - 5µs
-140.82.115.117:24349 - - [06/Nov/2021:03:57:15 +0000] "POST /hooks/gh HTTP/1.1" 200 OK - 3653µs
+140.82.115.117:24349 - - [06/Nov/2021:03:57:15 +0000] "POST /hooks/gh HTTP/1.1" 200 OK - 236µs
 ```
 
 # Sending a `"rook"` hook
@@ -107,7 +109,10 @@ Unless you're auditing the code you can safely skip this section.
 
 ## Readability
 
-The server is ~0.6kLOC after `cargo fmt` and can be read completely in an hour or two.  ~1/4 is generic logging and config and there is no shared mutable state to track.  The recommended reading order is `main.rs` -> `logging.rs` -> `config.rs` -> `router.rs`.
+The server is ~0.6kLOC[0] after `cargo fmt` and can be read completely in an hour or two.  ~1/4 is generic logging and config and there is no shared mutable state to track.  You may want to start reading at `main.rs::main`.
+
+[0] `find src -type f -name "*.rs" -print0 | wc -l --files0-from=-`
+
 
 ## Performance
 
@@ -117,7 +122,7 @@ rook has no debug output and doesn't return detailed errors to callers.  It does
 
 ## Security
 
-rook spawns processes from wherever it is running.  A `"github"` hook passes context through environment variables which is [reasonably secure](https://security.stackexchange.com/a/14009) on modern linuxes.  A `"rook"` hook splits the request body into args through [shlex](https://docs.rs/shlex/) and passes those args to the script.  Unlike envvars, command args are usually insecure because the default `hidepid=0` option when mounting [`proc(5)`](https://man7.org/linux/man-pages/man5/proc.5.html) allows [other users to view them](https://unix.stackexchange.com/questions/163145/how-to-get-whole-command-line-from-a-process).  If you want to forward sensitve data through a `"rook"` hook, you need to protect `/proc/[pid]/cmdline`:
+rook spawns processes from wherever it is running.  Both `"github"` and `"rook"` hooks pass the hook data through environment variables which is [reasonably secure](https://security.stackexchange.com/a/14009) on modern linuxes.  Note that command args are usually insecure because the default `hidepid=0` option when mounting [`proc(5)`](https://man7.org/linux/man-pages/man5/proc.5.html) allows [other users to view them](https://unix.stackexchange.com/questions/163145/how-to-get-whole-command-line-from-a-process).  If you want to forward sensitve data through a `"rook"` hook, you need to protect `/proc/[pid]/cmdline`:
 > Users may not access files and subdirectories inside any /proc/[pid] directories but their own (the /proc/[pid] directories themselves remain visible).  Sensitive files such as /proc/[pid]/cmdline and /proc/[pid]/status are now protected against other users.
 
 ## Process spawning

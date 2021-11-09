@@ -118,7 +118,7 @@ The server is ~0.6kLOC[0] after `cargo fmt` and can be read completely in an hou
 
 rook is designed to do one thing: map incoming POST requests with valid signatures to a local script and pass some environment variables or arguments.  If you're looking for more complex setups or verbose logging there are hundreds of other feature-rich implementations to explore.
 
-rook has no debug output and doesn't return detailed errors to callers.  It doesn't capture process output from scripts or failures to run scripts.  For example, if you forget to set the executable bit on your script (`chmod +x my_hook.sh`) then rook will return a `500 Internal Error` with no body.
+rook provides minimal output (for debugging builds, see [debugging](#debugging)) and doesn't return detailed errors to callers.  It doesn't capture process output from scripts or failures to run scripts.  For example, if you forget to set the executable bit (`chmod +x my_hook.sh`) then rook will return a `500 Internal Error` with no body.
 
 ## Security
 
@@ -139,3 +139,54 @@ rook spawns processes from wherever it is running.  Both `"github"` and `"rook"`
     > The intent of pthread_atfork() was to provide a mechanism whereby the application (or a library) could ensure that mutexes and other process and thread state would be restored to a consistent state. In practice, this task is generally too difficult to be practicable.
   
   Rather than try to use `pthread_atfork(3)` correctly, rook avoids the issue by not sharing mutable state across threads.  One atomic ref-counted ([Arc](https://doc.rust-lang.org/std/sync/struct.Arc.html)) struct holds the read-only route config which will not deadlock if a child process panics.
+
+## Debugging
+
+Additional debugging output is available in non-release builds.  Clone this repository and compile a debug build:
+
+```sh
+$ git clone git@github.com:numberoverzero/rook.git
+$ cargo build
+$ scp target/debug/rook your-server:~/rook-DEBUG
+```
+
+Sample output:
+```sh
+$ ./rook-DEBUG your-config.toml
+DEBUG:loaded config:
+DEBUG:port 8080 with 2 routes
+DEBUG:  1 github /hooks/gh/push
+DEBUG:  1 rook   /hooks/rook/status
+INFO:listening on port 8080
+DEBUG:incoming request
+DEBUG:<<<POST /hooks/gh/push
+DEBUG:<<<host: "159.89.149.210:8080"
+DEBUG:<<<user-agent: "GitHub-Hookshot/f7bdd04"
+DEBUG:<<<content-length: "7714"
+DEBUG:<<<accept: "*/*"
+DEBUG:<<<x-github-delivery: "d219d74c-40ee-11ec-88b9-916812175124"
+DEBUG:<<<x-github-event: "push"
+DEBUG:<<<x-github-hook-id: "327497270"
+DEBUG:<<<x-github-hook-installation-target-id: "423089939"
+DEBUG:<<<x-github-hook-installation-target-type: "repository"
+DEBUG:<<<x-hub-signature: "sha1=a0fb93ad0aa28a9afc0a7f3f2f00726ae18927e7"
+DEBUG:<<<x-hub-signature-256: "sha256=8fd95ba5c47675f73c046ee24ae06de0593468823d32f55985e55ab619be259c"
+DEBUG:<<<content-type: "application/json"
+DEBUG:<<<connection: "close"
+DEBUG:dispatch '/hooks/gh/push' as github
+DEBUG:github payload: (numberoverzero/webhook-test, 2a536c03b2ee2e28d946cc3ee5a507751a267c6f, refs/heads/main)
+DEBUG:path dispatch failed: HttpResponse<bad route>
+INFO:140.82.115.145:59913 - - [08/Nov/2021:23:51:41 +0000] "POST /hooks/gh/push HTTP/1.1" 400 Bad Request - 570µs
+DEBUG:incoming request
+DEBUG:<<<POST /hooks/rook/status
+DEBUG:<<<x-rook-signature-256: "sha256=39c08e2550981e8100a768f4626beee89f9ed1b2dc17797810630be97ee24b01"
+DEBUG:<<<content-length: "42"
+DEBUG:<<<accept: "*/*"
+DEBUG:<<<host: "159.89.149.210:8080"
+DEBUG:dispatch '/hooks/rook/status' as rook
+DEBUG:rook payload (42b): "{\"some\": \"literal\", \"json\": [{}, 0, null]}"
+DEBUG:hmac check success
+DEBUG:hook forked
+DEBUG:path dispatched successfully
+INFO:52.173.143.145:1984 - - [08/Nov/2021:23:51:53 +0000] "POST /hooks/rook/status HTTP/1.1" 200 OK - 603µs
+```

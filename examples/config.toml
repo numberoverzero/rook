@@ -1,0 +1,14 @@
+port = 8080
+
+[[hooks]]
+type = "github"
+url = "/hooks/gh/push"
+repo = "YOUR-GITHUB-USERNAME/YOUR-REPO"
+secret_file = "./shared_secret.txt"
+command_path = "./github_hook.sh"
+
+[[hooks]]
+type = "rook"
+url = "/hooks/rook/status"
+secret_file = "./shared_secret.txt"
+command_path = "./rook_hook.sh"

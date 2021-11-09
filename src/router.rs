@@ -11,6 +11,7 @@ use serde_json;
 use sha2::Sha256;
 use std::{
     convert::Infallible,
+    fmt,
     process::{self, Command, Stdio},
     str::{self, FromStr},
 };
@@ -31,17 +32,43 @@ async fn route(req: Request<Body>, cfg: &RouteConfig) -> Result<Response<Body>, 
     let path = parts.uri.path().to_string();
     let headers = &parts.headers;
 
+    #[cfg(debug_assertions)]
+    {
+        log::debug!("incoming request");
+        log::debug!("<<<{} {}", parts.method, path);
+        for (k, v) in headers {
+            log::debug!("<<<{}: {:?}", k, v);
+        }
+    }
+
     guard_content_length(headers)?;
     let body = &parse_body(body).await?;
     let resp = if let Some(hooks) = cfg.gh_hooks.get(&path) {
+        #[cfg(debug_assertions)]
+        log::debug!("dispatch '{}' as github", path);
         exec_gh_hooks(hooks, headers, body).await
     } else if let Some(hooks) = cfg.rook_hooks.get(&path) {
+        #[cfg(debug_assertions)]
+        log::debug!("dispatch '{}' as rook", path);
         exec_rook_hooks(hooks, headers, body).await
     } else {
+        #[cfg(debug_assertions)]
+        log::debug!("no route for '{}'", path);
         Err(BAD_ROUTE)
     };
     // using Result<T,E> for early exit control flow, flatten both branches
-    resp.map(|_| OK_EMPTY.into()).map_err(|e| e.into())
+    match resp {
+        Ok(_) => {
+            #[cfg(debug_assertions)]
+            log::debug!("path dispatched successfully");
+            Ok(OK_EMPTY.into())
+        }
+        Err(e) => {
+            #[cfg(debug_assertions)]
+            log::debug!("path dispatch failed: {:?}", e);
+            Err(e.into())
+        }
+    }
 }
 
 fn get_header<T: FromStr>(headers: &Headers, key: &str) -> Result<T, HttpResponse> {
@@ -93,14 +120,26 @@ async fn exec_gh_hooks(
     }
 
     let payload: GithubPayload = serde_json::from_slice(body).map_err(|_| BODY_MALFORMED)?;
+    #[cfg(debug_assertions)]
+    log::debug!(
+        "github payload: ({}, {}, {})",
+        payload.repo.full_name,
+        payload.commit,
+        payload.reference
+    );
     let hmac_claim = extract_hmac(headers, GH_DIGEST_HEADER, DIGEST_PREFIX)?;
     let mut state = State { m: 0, v: 0, s: 0 };
     for hook in hooks.iter().filter(|h| h.repo == payload.repo.full_name) {
+        #[cfg(debug_assertions)]
+        log::debug!("matched repo {}", hook.repo);
         state.m += 1;
-        if check_hmac(&hook.secret, body, &hmac_claim).is_err() {
+
+        if let Ok(_) = check_hmac(&hook.secret, body, &hmac_claim) {
+            state.v += 1;
+        } else {
             continue;
         }
-        state.v += 1;
+
         if run_forked(|| {
             Command::new(&hook.command)
                 .stdin(Stdio::null())
@@ -139,13 +178,17 @@ async fn exec_rook_hooks(
     }
 
     let body_string = str::from_utf8(body).map_err(|_| BODY_MALFORMED)?.trim();
+    #[cfg(debug_assertions)]
+    log::debug!("rook payload ({}b): {:?}", body_string.len(), body_string);
     let hmac_claim = extract_hmac(headers, ROOK_DIGEST_HEADER, DIGEST_PREFIX)?;
     let mut state = State { v: 0, s: 0 };
     for hook in hooks {
-        if check_hmac(&hook.secret, body, &hmac_claim).is_err() {
+        if let Ok(_) = check_hmac(&hook.secret, body, &hmac_claim) {
+            state.v += 1;
+        } else {
             continue;
         }
-        state.v += 1;
+
         if run_forked(|| {
             Command::new(&hook.command)
                 .stdin(Stdio::null())
@@ -189,8 +232,16 @@ fn check_hmac(secret: &Vec<u8>, body: &[u8], signature: &Vec<u8>) -> Result<(), 
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("error initializing hmac");
     mac.update(body);
     match mac.verify(signature) {
-        Ok(_) => Ok(()),
-        Err(_) => Err(SIGNATURE_MISMATCH),
+        Ok(_) => {
+            #[cfg(debug_assertions)]
+            log::debug!("hmac check success");
+            Ok(())
+        }
+        Err(_) => {
+            #[cfg(debug_assertions)]
+            log::debug!("hmac check failed");
+            Err(SIGNATURE_MISMATCH)
+        }
     }
 }
 
@@ -205,6 +256,8 @@ where
     match fork::fork() {
         Ok(Fork::Parent(_)) => {
             // we're in the parent process
+            #[cfg(debug_assertions)]
+            log::debug!("hook forked");
             return true;
         }
         Ok(Fork::Child) => {
@@ -219,6 +272,8 @@ where
         }
         Err(_) => {
             // failed to fork
+            #[cfg(debug_assertions)]
+            log::debug!("failed to fork");
             return false;
         }
     }
@@ -245,10 +300,22 @@ impl From<HttpResponse> for Response<Body> {
     }
 }
 
+#[derive(Clone)]
 enum HttpResponse {
     BadRequest(&'static str),
     ServerError,
     Ok(&'static str),
+}
+
+impl fmt::Debug for HttpResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let msg = match self {
+            HttpResponse::BadRequest(msg) => msg,
+            HttpResponse::ServerError => "internal error",
+            HttpResponse::Ok(_) => "ok",
+        };
+        write!(f, "HttpResponse<{}>", msg)
+    }
 }
 
 #[derive(Deserialize)]

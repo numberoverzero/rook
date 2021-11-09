@@ -12,6 +12,16 @@ use time::{format_description::FormatItem, macros::format_description, OffsetDat
 //   https://time-rs.github.io/book/api/format-description.html
 const CLF_TIME_FORMAT: &[FormatItem] = format_description!("[day]/[month repr:short]/[year]:[hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]");
 
+#[cfg(debug_assertions)]
+const LOG_LEVEL: Level = Level::Debug;
+#[cfg(debug_assertions)]
+const LOG_FILTER_LEVEL: LevelFilter = LevelFilter::Debug;
+
+#[cfg(not(debug_assertions))]
+const LOG_LEVEL: Level = Level::Info;
+#[cfg(not(debug_assertions))]
+const LOG_FILTER_LEVEL: LevelFilter = LevelFilter::Info;
+
 #[derive(Clone)]
 pub struct LoggingCtx {
     addr: SocketAddr,
@@ -26,7 +36,7 @@ pub struct LoggingCtx {
 
 pub fn init_logging() {
     log::set_logger(&LOGGER)
-        .map(|_| log::set_max_level(LevelFilter::Info))
+        .map(|_| log::set_max_level(LOG_FILTER_LEVEL))
         .unwrap_or_else(|_| {
             eprintln!("failed to init logging");
             process::exit(1);
@@ -110,11 +120,16 @@ static LOGGER: SimpleLogger = SimpleLogger;
 
 impl log::Log for SimpleLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
+        metadata.level() <= LOG_LEVEL
     }
     fn log(&self, record: &Record) {
+        #[cfg(not(debug_assertions))]
         if self.enabled(record.metadata()) {
             println!("{}", record.args());
+        }
+        #[cfg(debug_assertions)]
+        if self.enabled(record.metadata()) {
+            println!("{}:{}", record.level(), record.args());
         }
     }
     fn flush(&self) {}

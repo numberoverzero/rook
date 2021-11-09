@@ -30,14 +30,14 @@ pub enum ConfigError {
 
 pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
     let cfg_str = fs::read_to_string(config_path)?;
-    let cfg: _RookConfig = toml::from_str(&cfg_str)?;
+    let raw: _RookConfig = toml::from_str(&cfg_str)?;
 
-    let mut routes = RouteConfig {
-        port: cfg.port,
+    let mut cfg = RouteConfig {
+        port: raw.port,
         gh_hooks: HashMap::new(),
         rook_hooks: HashMap::new(),
     };
-    for hook in cfg.hooks {
+    for hook in raw.hooks {
         match hook {
             _HookConfig::_GithubHook {
                 url,
@@ -45,11 +45,10 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
                 command,
                 repo,
             } => {
-                if routes.rook_hooks.contains_key(&url) {
+                if cfg.rook_hooks.contains_key(&url) {
                     return Err(format!("hook path type conflict: '{}'", url).into());
                 }
-                routes
-                    .gh_hooks
+                cfg.gh_hooks
                     .entry(url.to_string())
                     .or_insert_with(|| Vec::new())
                     .push(GithubHook {
@@ -63,11 +62,10 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
                 secret,
                 command,
             } => {
-                if routes.gh_hooks.contains_key(&url) {
+                if cfg.gh_hooks.contains_key(&url) {
                     return Err(format!("hook path type conflict: '{}'", url).into());
                 }
-                routes
-                    .rook_hooks
+                cfg.rook_hooks
                     .entry(url.to_string())
                     .or_insert_with(|| Vec::new())
                     .push(RookHook {
@@ -77,7 +75,25 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
             }
         };
     }
-    Ok(routes)
+    #[cfg(debug_assertions)]
+    debug_routes(&cfg);
+    Ok(cfg)
+}
+
+#[cfg(debug_assertions)]
+fn debug_routes(cfg: &RouteConfig) {
+    log::debug!("loaded config:");
+    log::debug!(
+        "port {} with {} routes",
+        cfg.port,
+        cfg.gh_hooks.len() + cfg.rook_hooks.len()
+    );
+    for (path, handlers) in cfg.gh_hooks.iter() {
+        log::debug!("{: >3} github {}", handlers.len(), path);
+    }
+    for (path, handlers) in cfg.rook_hooks.iter() {
+        log::debug!("{: >3} rook   {}", handlers.len(), path);
+    }
 }
 
 fn deserialize_secret<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>

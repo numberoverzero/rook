@@ -109,7 +109,7 @@ Unless you're auditing the code you can safely skip this section.
 
 ## Readability
 
-The server is ~0.6kLOC[0] after `cargo fmt` and can be read completely in an hour or two.  ~1/4 is generic logging and config and there is no shared mutable state to track.  You may want to start reading at `main.rs::main`.
+The server is ~0.7kLOC[0] after `cargo fmt` and can be read completely in an hour or two.  ~1/4 is generic logging and config and there is no shared mutable state to track.  You may want to start reading at `main.rs::main`.
 
 [0] `find src -type f -name "*.rs" -print0 | wc -l --files0-from=-`
 

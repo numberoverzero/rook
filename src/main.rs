@@ -6,7 +6,7 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Server,
 };
-use std::{convert::Infallible, env, net::SocketAddr, process, sync::Arc};
+use std::{convert::Infallible, env, process, sync::Arc};
 
 #[tokio::main]
 async fn main() {
@@ -26,7 +26,6 @@ async fn main() {
         }
     };
     let svc_cfg = cfg.clone();
-    let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
     let make_svc = make_service_fn(move |conn: &AddrStream| {
         let conn_cfg = svc_cfg.clone();
         let log = logging::log_context(&conn.remote_addr());
@@ -44,8 +43,8 @@ async fn main() {
             }))
         }
     });
-    let server = Server::bind(&addr).serve(make_svc);
-    logging::info!("listening on port {}", cfg.port);
+    let server = Server::bind(&cfg.socket).serve(make_svc);
+    logging::info!("listening on {}:{}", cfg.socket.ip(), cfg.socket.port());
     match server.await {
         Ok(_) => {
             println!("shutting down");

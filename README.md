@@ -8,8 +8,6 @@
 
 Supports the github [`push` event](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#push) or an arbitrary payload `"rook"` event.  Other github event types (like [issues](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issues) or [deployments](https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#deployment)) are not supported.
 
-TLS support planned.
-
 # Quick start
 
 1. Create a file that contains only the shared secret
@@ -27,6 +25,7 @@ Multiple hooks can listen on the same path but they must be the same type.  When
 ### Sample config
 
 ```toml
+addr = 0.0.0.0  # or 127.0.0.1 if you're proxying the server
 port = 9000
 
 [[hooks]]
@@ -134,10 +133,10 @@ rook spawns processes from wherever it is running.  Both `"github"` and `"rook"`
   > In order to be sure that setsid() will succeed, call fork(2) and have the parent _exit(2), while the child (which by definition can't be a process group leader) calls setsid().
 * **Threading**: The main rook process is multi-threaded with [tokio](https://docs.rs/tokio), so care must be taken when forking, as noted in `fork(2)`:
   > The child process is created with a single thread—the one that called fork().  The entire virtual address space of the parent is replicated in the child [..]; the use of pthread_atfork(3) may be helpful for dealing with problems that this can cause.
-  
+
   However, [pthread_atfork(3)](https://man7.org/linux/man-pages/man3/pthread_atfork.3.html) has this to say on the feasibility of correct implementation:
     > The intent of pthread_atfork() was to provide a mechanism whereby the application (or a library) could ensure that mutexes and other process and thread state would be restored to a consistent state. In practice, this task is generally too difficult to be practicable.
-  
+
   Rather than try to use `pthread_atfork(3)` correctly, rook avoids the issue by not sharing mutable state across threads.  One atomic ref-counted ([Arc](https://doc.rust-lang.org/std/sync/struct.Arc.html)) struct holds the read-only route config which will not deadlock if a child process panics.
 
 ## Debugging

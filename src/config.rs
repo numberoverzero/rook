@@ -2,11 +2,11 @@ use serde::{
     de::{self, Deserializer},
     Deserialize,
 };
-use std::{collections::HashMap, fmt::Display, fs};
+use std::{collections::HashMap, fmt::Display, fs, net::{SocketAddr, IpAddr}};
 use toml;
 
 pub struct RouteConfig {
-    pub port: u16,
+    pub socket: SocketAddr,
     pub gh_hooks: HashMap<String, Vec<GithubHook>>,
     pub rook_hooks: HashMap<String, Vec<RookHook>>,
 }
@@ -33,7 +33,7 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
     let raw: _RookConfig = toml::from_str(&cfg_str)?;
 
     let mut cfg = RouteConfig {
-        port: raw.port,
+        socket: SocketAddr::new(raw.addr, raw.port),
         gh_hooks: HashMap::new(),
         rook_hooks: HashMap::new(),
     };
@@ -75,17 +75,19 @@ pub fn from_file(config_path: &str) -> Result<RouteConfig, ConfigError> {
             }
         };
     }
-    #[cfg(debug_assertions)]
     debug_routes(&cfg);
     Ok(cfg)
 }
+
+#[cfg(not(debug_assertions))]
+fn debug_routes(_: &RouteConfig) {}
 
 #[cfg(debug_assertions)]
 fn debug_routes(cfg: &RouteConfig) {
     log::debug!("loaded config:");
     log::debug!(
         "port {} with {} routes",
-        cfg.port,
+        cfg.socket.port(),
         cfg.gh_hooks.len() + cfg.rook_hooks.len()
     );
     for (path, handlers) in cfg.gh_hooks.iter() {
@@ -135,6 +137,7 @@ impl Display for ConfigError {
 
 #[derive(Deserialize)]
 struct _RookConfig {
+    addr: IpAddr,
     port: u16,
     hooks: Vec<_HookConfig>,
 }

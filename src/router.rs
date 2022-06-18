@@ -141,8 +141,18 @@ async fn exec_gh_hooks(
         if run_forked(|| {
             Command::new(&hook.command)
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(
+                    if cfg!(debug_assertions) {
+                        Stdio::inherit()
+                    } else {
+                        Stdio::null()
+                })
+                .stderr(
+                    if cfg!(debug_assertions) {
+                        Stdio::inherit()
+                    } else {
+                        Stdio::null()
+                })
                 // https://security.stackexchange.com/a/14009
                 .env("GITHUB_REPO", &payload.repo.full_name)
                 .env("GITHUB_COMMIT", &payload.commit)
@@ -189,8 +199,18 @@ async fn exec_rook_hooks(
         if run_forked(|| {
             Command::new(&hook.command)
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(
+                    if cfg!(debug_assertions) {
+                        Stdio::inherit()
+                    } else {
+                        Stdio::null()
+                })
+                .stderr(
+                    if cfg!(debug_assertions) {
+                        Stdio::inherit()
+                    } else {
+                        Stdio::null()
+                })
                 .env("ROOK_INPUT", body_string)
                 .spawn()
         }) {

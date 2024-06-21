@@ -189,3 +189,24 @@ DEBUG:hook forked
 DEBUG:path dispatched successfully
 INFO:52.173.143.145:1984 - - [08/Nov/2021:23:51:53 +0000] "POST /hooks/rook/status HTTP/1.1" 200 OK - 603µs
 ```
+
+## Optimized Release Builds
+
+You can build a space-optimized binary with:
+
+```
+make release-musl
+```
+
+This uses Docker for build isolation and outputs the binary to your `target/` directory at:
+
+```
+target/optimized/rook.x86_64-unknown-linux-musl
+```
+
+Relevant optimizations are defined in the following places:
+
+```
+Config.toml (build, profile.release sections)
+docker-build/Dockerfile.release (RUN cargo build, RUN upx)
+```

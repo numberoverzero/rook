@@ -16,3 +16,13 @@ sha2 = { version = "0.10" }
 time = { version = "0.3", features = ["formatting", "macros"] }
 tokio = { version = "1.38", features = ["macros", "rt-multi-thread", "signal"] }
 toml = { version = "0.5" }
+
+[build]
+rustflags = ["-Zlocation-detail=none"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = true

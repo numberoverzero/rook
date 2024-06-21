@@ -1,8 +1,6 @@
-.PHONY: build-debug build-release
+.PHONY: release-musl debug-musl
 
-build-debug:
-	cargo build --target x86_64-unknown-linux-gnu
-	du -sh target/x86_64-unknown-linux-gnu/debug/rook
-build-release:
-	cargo build --target x86_64-unknown-linux-gnu --release
-	du -sh target/x86_64-unknown-linux-gnu/release/rook
+release-musl:
+	docker-build/build.sh
+debug-musl:
+	cargo build --target=x86_64-unknown-linux-musl

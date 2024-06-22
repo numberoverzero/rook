@@ -12,12 +12,8 @@ RUN rustup update nightly && rustup default nightly && \
 
 RUN USER=root cargo new ${PROJECT}
 WORKDIR /usr/src/${PROJECT}
-COPY Cargo.toml Cargo.lock ./
-RUN cargo +nightly build \
-    -Z build-std=std,panic_abort \
-    -Z build-std-features=panic_immediate_abort \
-    --target ${TARGET} \
-    --release
+COPY Cargo.toml Cargo.lock .cargo ./
+RUN cargo +nightly build --target ${TARGET} --release
 
 COPY src ./src
 RUN cargo install --path .

@@ -108,9 +108,9 @@ async fn parse_body(body: Body) -> Result<Vec<u8>, HttpResponse> {
 }
 
 async fn exec_gh_hooks(
-    hooks: &Vec<GithubHook>,
+    hooks: &[GithubHook],
     headers: &Headers,
-    body: &Vec<u8>,
+    body: &[u8],
 ) -> Result<(), HttpResponse> {
     const GH_DIGEST_HEADER: &'static str = "x-hub-signature-256";
     struct State {
@@ -175,9 +175,9 @@ async fn exec_gh_hooks(
 }
 
 async fn exec_rook_hooks(
-    hooks: &Vec<RookHook>,
+    hooks: &[RookHook],
     headers: &Headers,
-    body: &Vec<u8>,
+    body: &[u8],
 ) -> Result<(), HttpResponse> {
     const ROOK_DIGEST_HEADER: &'static str = "x-rook-signature-256";
     struct State {
@@ -245,7 +245,7 @@ fn extract_hmac(
         .collect()
 }
 
-fn check_hmac(secret: &Vec<u8>, body: &[u8], signature: &Vec<u8>) -> Result<(), HttpResponse> {
+fn check_hmac(secret: &[u8], body: &[u8], signature: &[u8]) -> Result<(), HttpResponse> {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("error initializing hmac");
     mac.update(body);
     match mac.verify_slice(signature) {

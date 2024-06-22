@@ -1,6 +1,6 @@
 # A small, simple, secure webhook handler
 
-* ~5MB binary
+* ~400KB binary
 * ~500µs response times (8kb payload)
 * verifies `x-hub-signature-256` header from github
 * toml configuration to run multiple hooks per route and per repository

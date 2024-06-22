@@ -8,5 +8,5 @@ TAG=localhost/$PROJECT:$TARGET
 docker build -t $TAG -f docker-build/Dockerfile.release --build-arg PROJECT=$PROJECT .
 CID=$(docker container create $TAG)
 mkdir -p target/optimized/
-docker cp -q $CID:/$PROJECT.$TARGET target/optimized/
+docker cp -q $CID:target/${TARGET}/release/${PROJECT} target/optimized/${PROJECT}.${TARGET}
 docker container rm $CID &> /dev/null

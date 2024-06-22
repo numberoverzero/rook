@@ -6,16 +6,13 @@ ARG PROJECT
 RUN apk add musl-dev upx
 RUN update-ca-certificates
 
-WORKDIR /usr/src
 RUN rustup update nightly && rustup default nightly && \
     rustup component add rust-src --toolchain nightly
 
-RUN USER=root cargo new ${PROJECT}
-WORKDIR /usr/src/${PROJECT}
-COPY Cargo.toml Cargo.lock .cargo ./
-RUN cargo +nightly build --target ${TARGET} --release
-
-COPY src ./src
-RUN cargo install --path .
-RUN upx --best --lzma /usr/local/cargo/bin/${PROJECT}
-RUN cp /usr/local/cargo/bin/${PROJECT} /${PROJECT}.${TARGET}
+RUN \
+    --mount=type=bind,source=Cargo.toml,target=Cargo.toml \
+    --mount=type=bind,source=Cargo.lock,target=Cargo.lock \
+    --mount=type=bind,source=.cargo,target=.cargo \
+    --mount=type=bind,source=src,target=src \
+    cargo +nightly build --target ${TARGET} --release
+RUN upx --best --lzma target/${TARGET}/release/${PROJECT}
